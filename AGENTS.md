@@ -26,6 +26,12 @@ This agent specializes in exporting Dynatrace configurations using the Dynatrace
 - **Silent Failures**: Environment variable failures cause silent export failures - always verify variables are set
 - **Provider Path**: Use full path to provider executable in .terraform directory
 - **Authentication**: Verify API token permissions before export attempts
+- **TERRAFORM SCOPE MANAGEMENT**: Before ANY `terraform apply`, ALWAYS check `terraform state list` and review full plan for unexpected `destroy` operations. Ensure ALL previously managed resources are referenced in current configuration to prevent accidental deletions. Use targeted applies (`terraform apply -target=resource`) for isolated changes.
+- **NEVER DELETE WITHOUT EXPLICIT REQUEST**: NEVER apply any Terraform plan that shows `destroy` operations unless user explicitly types "DELETE" or requests deletion. Always abort and ask for confirmation if plan shows destroys.
+- **STATE vs CONFIG UNDERSTANDING**: Resources imported with `-import-state` are managed by Terraform and WILL BE DELETED if not referenced in main.tf. Resources exported without import are ignored by Terraform until first apply.
+- **EXPORT METHOD CONSEQUENCES**: `-import-state` makes resources managed (dangerous if not in config), export-only keeps resources unmanaged (safe but not controlled).
+- **DUPLICATE PREVENTION**: Before creating new resources, ALWAYS check what already exists in the environment. If resources exist, use `-import-state` to manage them instead of creating duplicates. When applying configurations, verify no duplicates are being created by checking resource counts before and after.
+- **CONFIGURATION DIRECTORY ISOLATION**: The `/configuration/` directory should NEVER contain Terraform state files. Always remove `terraform.tfstate*`, `.terraform*`, and `*.plan` files from export directories. Only the main working directory should manage state. This prevents accidental resource deletion when exported configurations have empty main.tf files.
 
 ## Key Knowledge
 - **Dynatrace Provider Export Tool**: Uses the provider executable directly with `-export` flag
@@ -302,6 +308,44 @@ After successful export, provide:
 4. **Usage Instructions**: How to apply to other environments
 5. **Security Check**: Confirm no secrets in exported files
 
+## Terraform State Management
+
+### State vs Configuration
+- **Terraform State** (`terraform.tfstate`): JSON file tracking what resources Terraform has created, their IDs, and which configuration manages each resource
+- **Configuration** (`.tf` files): Define what resources should exist
+
+### Terraform's Decision Matrix
+```
+If resource is in STATE but NOT in CONFIG → DELETE
+If resource is NOT in STATE → IGNORE (even if .tf files exist)  
+If resource is in BOTH STATE and CONFIG → MANAGE
+```
+
+### Export Methods and Consequences
+**Method 1: Export Only**
+```bash
+terraform-provider-dynatrace -export RESOURCE_NAME
+```
+- Creates `.tf` configuration files
+- Does NOT touch Terraform state
+- Resources remain unmanaged by Terraform
+- Safe: Cannot be accidentally deleted
+
+**Method 2: Export + Import State**
+```bash
+terraform-provider-dynatrace -export -import-state RESOURCE_NAME
+```
+- Creates `.tf` configuration files
+- Imports resources into Terraform state
+- Resources become managed by Terraform
+- **DANGEROUS**: Requires main.tf module reference to prevent deletion
+
+### Critical State Management Rules
+1. **Check State Before Apply**: Always run `terraform state list` before any apply
+2. **Review Plans for Destroys**: Any `destroy` operation requires explicit user "DELETE" confirmation
+3. **Module References Required**: All imported resources MUST have corresponding module references in main.tf
+4. **State-Config Sync**: Resources in state but not in config will be deleted on next apply
+
 ## Best Practices
 - Always create a dedicated working directory
 - Use modular structure for reusability
@@ -319,6 +363,7 @@ After successful export, provide:
 - **ALWAYS finish what you start** - Don't leave exports half-complete, even if the user doesn't explicitly ask for completion
 - **Default behavior**: Check AmazonQ.md first - only create new working directories if none exists
 - **Status Reporting**: Current export status is always available in AmazonQ.md context
+- **REMEMBER LESSONS**: When asked to "remember" something, always update AGENTS.md with the lesson in the appropriate section
 
 ## Reference Documentation
 - **Primary**: Complete provider details in `dynatrace-terraform-docs.md`
